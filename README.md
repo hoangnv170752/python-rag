@@ -116,7 +116,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🔗 Links
 
-- [Blog Post Tutorial](https://dev.to/yourusername/building-your-first-rag-system-with-python-and-openai)
+- [Blog Post Tutorial](https://dev.to/mazyaryousefinia/building-your-first-rag-system-with-python-and-openai-1326)
 - [OpenAI Documentation](https://platform.openai.com/docs/api-reference)
 - [Python Documentation](https://docs.python.org/3/)
 
