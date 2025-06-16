@@ -233,13 +233,21 @@ class RestaurantRAG:
         # Create prompt
         prompt = f"""Context: {context}\n\nQuestion: {query}\n\nAnswer:"""
         
-        # Get response from OpenAI
-        response = openai.chat.completions.create(
-            model="gpt-4-turbo-preview",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant specializing in Vietnamese restaurants and food. Use the provided context to answer the question in Vietnamese. If the information is not in the context, say you don't have that information."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        
-        return response.choices[0].message.content
+        # Get response from OpenAI (using v0.28.1 format)
+        try:
+            logging.debug("Sending request to OpenAI for restaurant query")
+            response = openai.ChatCompletion.create(
+                model="gpt-4-turbo-preview",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant specializing in Vietnamese restaurants and food. Use the provided context to answer the question in Vietnamese. If the information is not in the context, say you don't have that information."},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            
+            # Extract content from response (different format in v0.28.1)
+            answer = response['choices'][0]['message']['content']
+            logging.debug(f"Received answer from OpenAI: {answer[:50]}...")
+            return answer
+        except Exception as e:
+            logging.error(f"Error getting response from OpenAI: {e}")
+            return "Xin lỗi, tôi không thể trả lời câu hỏi của bạn lúc này."
