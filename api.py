@@ -57,8 +57,11 @@ async def restaurant_query(query: Query):
         for i, restaurant in enumerate(top_restaurants):
             logging.debug(f"Processing restaurant {i}: {restaurant}")
             try:
-                restaurant_results.append(f"{restaurant['name']} ({restaurant['address']})")
-                logging.debug(f"Added restaurant: {restaurant['name']}")
+                # Handle Qdrant response format
+                name = restaurant.get('name', 'Unknown')
+                address = restaurant.get('address', 'No address')
+                restaurant_results.append(f"{name} ({address})")
+                logging.debug(f"Added restaurant: {name}")
             except KeyError as ke:
                 logging.error(f"KeyError in restaurant data: {ke}, restaurant data: {restaurant}")
                 raise
@@ -72,8 +75,14 @@ async def restaurant_query(query: Query):
         for i, item in enumerate(top_items):
             logging.debug(f"Processing menu item {i}: {item}")
             try:
-                item_results.append(f"{item['item']['name']} - {item['item']['price']} VND at {item['restaurant_name']}")
-                logging.debug(f"Added menu item: {item['item']['name']}")
+                # Handle Qdrant response format
+                item_data = item.get('item', {})
+                item_name = item_data.get('name', 'Unknown')
+                item_price = item_data.get('price', 0)
+                restaurant_name = item.get('restaurant_name', 'Unknown restaurant')
+                
+                item_results.append(f"{item_name} - {item_price} VND at {restaurant_name}")
+                logging.debug(f"Added menu item: {item_name}")
             except KeyError as ke:
                 logging.error(f"KeyError in menu item data: {ke}, item data: {item}")
                 raise

@@ -8,6 +8,7 @@ import logging
 from .document_loader import DocumentLoader
 from .text_processor import TextProcessor
 from .embeddings_manager import EmbeddingsManager
+from .qdrant_manager import QdrantManager
 
 class RestaurantRAG:
     """
@@ -21,6 +22,7 @@ class RestaurantRAG:
         self.loader = DocumentLoader('data/documents')
         self.processor = TextProcessor()
         self.embeddings_manager = EmbeddingsManager(self.api_key)
+        self.qdrant_manager = QdrantManager()
         self.restaurants_data = []
         
         # Initialize system
@@ -29,25 +31,24 @@ class RestaurantRAG:
 
     def initialize_system(self):
         """Load restaurant data and prepare for queries"""
-        # Load restaurant data from JSON
-        logging.info("Loading restaurant data from JSON file")
-        self.restaurants_data = self.loader.load_json_data('data_fixed_formatted.json')
-        logging.info(f"Loaded {len(self.restaurants_data)} restaurants from data file")
+        # Check if data has been loaded into Qdrant
+        # For this implementation, we assume data has been loaded using the ingest_data_to_qdrant.py script
+        # If you want to load data here, you would need to implement similar logic to the ingest script
         
-        if not self.restaurants_data:
-            logging.error("No restaurant data loaded! Check file path and content.")
-            logging.debug("Attempting to list available files in the documents directory")
-            try:
-                import os
-                files = os.listdir('data/documents')
-                logging.debug(f"Files in data/documents: {files}")
-            except Exception as e:
-                logging.error(f"Error listing directory: {e}")
+        logging.info("RestaurantRAG system initialized with Qdrant vector database")
+        logging.info("If you haven't ingested data yet, please run the ingest_data_to_qdrant.py script")
         
-        # Create searchable text representations for each restaurant and menu item
-        logging.info("Creating text representations for restaurants")
-        self.restaurant_texts = []
-        for i, restaurant in enumerate(self.restaurants_data):
+    def _create_text_representations(self, restaurants: List[Dict]) -> List[str]:
+        """Create searchable text representations for restaurants.
+        
+        Args:
+            restaurants: List of restaurant dictionaries
+            
+        Returns:
+            List of text representations
+        """
+        texts = []
+        for i, restaurant in enumerate(restaurants):
             try:
                 # Basic restaurant info
                 logging.debug(f"Processing restaurant {i}: {restaurant.get('name', 'Unknown')}")
@@ -62,17 +63,13 @@ class RestaurantRAG:
                 for item in items:
                     restaurant_text += f"- {item.get('name')} - Price: {item.get('price')} VND\n"
                 
-                self.restaurant_texts.append(restaurant_text)
+                texts.append(restaurant_text)
             except Exception as e:
                 logging.error(f"Error processing restaurant {i}: {e}")
                 logging.error(f"Restaurant data: {restaurant}")
         
-        logging.info(f"Created {len(self.restaurant_texts)} restaurant text representations")
-        
-        # Create embeddings for restaurant texts
-        logging.info("Creating embeddings for restaurant texts")
-        self.restaurant_embeddings = self.embeddings_manager.create_embeddings(self.restaurant_texts)
-        logging.info(f"Created {len(self.restaurant_embeddings)} restaurant embeddings")
+        logging.info(f"Created {len(texts)} restaurant text representations")
+        return texts
 
     def search_restaurants(self, query: str, top_k: int = 3) -> List[Dict]:
         """
@@ -88,19 +85,8 @@ class RestaurantRAG:
         # Get query embedding
         query_embedding = self.embeddings_manager.create_embeddings([query])[0]
         
-        # Find similar restaurants
-        similar_restaurants = []
-        for i, embedding in enumerate(self.restaurant_embeddings):
-            similarity = self.calculate_similarity(query_embedding, embedding)
-            similar_restaurants.append((similarity, i))
-        
-        # Sort by similarity (descending)
-        similar_restaurants.sort(reverse=True)
-        
-        # Return top-k results
-        results = []
-        for _, idx in similar_restaurants[:top_k]:
-            results.append(self.restaurants_data[idx])
+        # Use Qdrant to find similar restaurants
+        results = self.qdrant_manager.search_restaurants(query_embedding.tolist(), top_k)
         
         return results
     
@@ -121,83 +107,17 @@ class RestaurantRAG:
         logging.debug("Creating embedding for query")
         query_embedding = self.embeddings_manager.create_embeddings([query])[0]
         
-        # Create texts and embeddings for individual menu items
-        logging.debug("Creating texts and info for menu items")
-        menu_texts = []
-        menu_items_info = []
-        
-        for restaurant in self.restaurants_data:
-            try:
-                restaurant_id = restaurant.get('id')
-                restaurant_name = restaurant.get('name')
-                logging.debug(f"Processing menu items for restaurant: {restaurant_name}")
-                
-                items = restaurant.get('items', [])
-                logging.debug(f"Found {len(items)} items in restaurant")
-                
-                for item in items:
-                    try:
-                        item_name = item.get('name', 'Unknown')
-                        item_price = item.get('price', 0)
-                        item_text = f"{item_name} - Price: {item_price} VND"
-                        menu_texts.append(item_text)
-                        
-                        menu_items_info.append({
-                            'restaurant_id': restaurant_id,
-                            'restaurant_name': restaurant_name,
-                            'item': item
-                        })
-                        logging.debug(f"Added menu item: {item_name}")
-                    except Exception as e:
-                        logging.error(f"Error processing menu item: {e}")
-                        logging.error(f"Item data: {item}")
-            except Exception as e:
-                logging.error(f"Error processing restaurant menu items: {e}")
-                logging.error(f"Restaurant data: {restaurant}")
-        
-        logging.info(f"Created {len(menu_texts)} menu item texts")
-        
-        # Create embeddings for menu texts
-        logging.debug("Creating embeddings for menu texts")
-        menu_embeddings = self.embeddings_manager.create_embeddings(menu_texts)
-        logging.debug(f"Created {len(menu_embeddings)} menu embeddings")
-        
-        # Find similar menu items
-        logging.debug("Finding similar menu items")
-        similar_items = []
-        for i, embedding in enumerate(menu_embeddings):
-            similarity = self.calculate_similarity(query_embedding, embedding)
-            similar_items.append((similarity, i))
-        
-        # Sort by similarity (descending)
-        similar_items.sort(reverse=True)
-        
-        # Return top-k results
-        results = []
-        for _, idx in similar_items[:top_k]:
-            results.append(menu_items_info[idx])
+        # Use Qdrant to find similar menu items
+        results = self.qdrant_manager.search_menu_items(query_embedding.tolist(), top_k)
         
         logging.info(f"Returning {len(results)} menu item results")
         return results
     
-    def calculate_similarity(self, embedding1, embedding2) -> float:
-        """Calculate cosine similarity between two embeddings"""
-        import numpy as np
-        
-        # Convert to numpy arrays
-        vec1 = np.array(embedding1)
-        vec2 = np.array(embedding2)
-        
-        # Calculate cosine similarity
-        dot_product = np.dot(vec1, vec2)
-        norm1 = np.linalg.norm(vec1)
-        norm2 = np.linalg.norm(vec2)
-        
-        return dot_product / (norm1 * norm2)
+    # Similarity calculation is now handled by Qdrant
     
     def answer_restaurant_query(self, query: str) -> str:
         """
-        Answer a query about restaurants or food items
+        Answer a query about restaurants or food items using Qdrant vector database
         
         Args:
             query: The user's question about restaurants or food
@@ -205,30 +125,32 @@ class RestaurantRAG:
         Returns:
             A natural language response to the query
         """
-        # Search for relevant restaurants and menu items
-        relevant_restaurants = self.search_restaurants(query)
-        relevant_menu_items = self.search_menu_items(query)
+        # Search for relevant restaurants and menu items from Qdrant
+        relevant_restaurants = self.search_restaurants(query, top_k=3)
+        relevant_menu_items = self.search_menu_items(query, top_k=5)
         
         # Prepare context
         context = "Restaurant information:\n"
         
-        # Add restaurant info
+        # Add restaurant info from Qdrant results
         for restaurant in relevant_restaurants:
-            context += f"Restaurant: {restaurant.get('name')}\n"
-            context += f"Address: {restaurant.get('address')}\n"
+            context += f"Restaurant: {restaurant.get('name', 'Unknown')}\n"
+            context += f"Address: {restaurant.get('address', 'No address')}\n"
             
             # Add some sample menu items
             context += "Sample menu items:\n"
             for item in restaurant.get('items', [])[:5]:  # Limit to 5 items per restaurant
-                context += f"- {item.get('name')} - Price: {item.get('price')} VND\n"
+                if item is not None:
+                    context += f"- {item.get('name', 'Unknown')} - Price: {item.get('price', 0)} VND\n"
             
             context += "\n"
         
         # Add specific menu items that matched the query
         context += "Specific menu items that match your query:\n"
         for item_info in relevant_menu_items:
-            item = item_info['item']
-            context += f"- {item.get('name')} - Price: {item.get('price')} VND at {item_info['restaurant_name']}\n"
+            item = item_info.get('item', {})
+            restaurant_name = item_info.get('restaurant_name', 'Unknown restaurant')
+            context += f"- {item.get('name', 'Unknown')} - Price: {item.get('price', 0)} VND at {restaurant_name}\n"
         
         # Create prompt
         prompt = f"""Context: {context}\n\nQuestion: {query}\n\nAnswer:"""
